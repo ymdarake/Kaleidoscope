@@ -1,3 +1,5 @@
+#pragma once
+
 #include <string>
 
 // The lexer returns tokens [0-255] if it is an unknown character, otherwise one

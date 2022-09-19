@@ -36,16 +36,6 @@ static int GetTokPrecedence() {
   return TokPrec;
 }
 
-/// LogError* - These are little helper functions for error handling.
-std::unique_ptr<AST::Expr> LogError(const char *Str) {
-  fprintf(stderr, "Error: %s\n", Str);
-  return nullptr;
-}
-std::unique_ptr<AST::Prototype> LogErrorP(const char *Str) {
-  LogError(Str);
-  return nullptr;
-}
-
 static std::unique_ptr<AST::Expr> ParseExpression();
 
 /// numberexpr ::= number
@@ -63,7 +53,7 @@ static std::unique_ptr<AST::Expr> ParseParenExpr() {
     return nullptr;
 
   if (CurTok != ')')
-    return LogError("expected ')'");
+    return AST::LogError("expected ')'");
   getNextToken(); // eat ).
   return V;
 }
@@ -93,7 +83,7 @@ static std::unique_ptr<AST::Expr> ParseIdentifierExpr() {
         break;
 
       if (CurTok != ',')
-        return LogError("Expected ')' or ',' in argument list");
+        return AST::LogError("Expected ')' or ',' in argument list");
       getNextToken();
     }
   }
@@ -111,7 +101,7 @@ static std::unique_ptr<AST::Expr> ParseIdentifierExpr() {
 static std::unique_ptr<AST::Expr> ParsePrimary() {
   switch (CurTok) {
   default:
-    return LogError("unknown token when expecting an expression");
+    return AST::LogError("unknown token when expecting an expression");
   case tok_identifier:
     return ParseIdentifierExpr();
   case tok_number:
@@ -173,19 +163,19 @@ static std::unique_ptr<AST::Expr> ParseExpression() {
 ///   ::= id '(' id* ')'
 static std::unique_ptr<AST::Prototype> ParsePrototype() {
   if (CurTok != tok_identifier)
-    return LogErrorP("Expected function name in prototype");
+    return AST::LogErrorP("Expected function name in prototype");
 
   std::string FnName = IdentifierStr;
   getNextToken();
 
   if (CurTok != '(')
-    return LogErrorP("Expected '(' in prototype");
+    return AST::LogErrorP("Expected '(' in prototype");
 
   std::vector<std::string> ArgNames;
   while (getNextToken() == tok_identifier)
     ArgNames.push_back(IdentifierStr);
   if (CurTok != ')')
-    return LogErrorP("Expected ')' in prototype");
+    return AST::LogErrorP("Expected ')' in prototype");
 
   // success.
   getNextToken(); // eat ')'.
@@ -194,24 +184,24 @@ static std::unique_ptr<AST::Prototype> ParsePrototype() {
 }
 
 /// definition ::= 'def' prototype expression
-static std::unique_ptr<AST::Function> ParseDefinition() {
+static std::unique_ptr<AST::FunctionAST> ParseDefinition() {
   getNextToken(); // eat def.
   auto Proto = ParsePrototype();
   if (!Proto)
     return nullptr;
 
   if (auto E = ParseExpression())
-    return std::make_unique<AST::Function>(std::move(Proto), std::move(E));
+    return std::make_unique<AST::FunctionAST>(std::move(Proto), std::move(E));
   return nullptr;
 }
 
 /// toplevelexpr ::= expression
-static std::unique_ptr<AST::Function> ParseTopLevelExpr() {
+static std::unique_ptr<AST::FunctionAST> ParseTopLevelExpr() {
   if (auto E = ParseExpression()) {
     // Make an anonymous proto.
     auto Proto = std::make_unique<AST::Prototype>("__anon_expr",
                                                   std::vector<std::string>());
-    return std::make_unique<AST::Function>(std::move(Proto), std::move(E));
+    return std::make_unique<AST::FunctionAST>(std::move(Proto), std::move(E));
   }
   return nullptr;
 }
@@ -225,10 +215,22 @@ static std::unique_ptr<AST::Prototype> ParseExtern() {
 //===----------------------------------------------------------------------===//
 // Top-Level parsing
 //===----------------------------------------------------------------------===//
+static void InitializeModule() {
+  // Open a new context and module.
+  TheContext = std::make_unique<LLVMContext>();
+  TheModule = std::make_unique<Module>("my cool jit", *TheContext);
+
+  // Create a new builder for the module.
+  Builder = std::make_unique<IRBuilder<>>(*TheContext);
+}
 
 static void HandleDefinition() {
-  if (ParseDefinition()) {
-    fprintf(stderr, "Parsed a function definition.\n");
+  if (auto FnAST = ParseDefinition()) {
+    if (auto *FnIR = FnAST->codegen()) {
+      fprintf(stderr, "Read function definition:");
+      FnIR->print(errs());
+      fprintf(stderr, "\n");
+    }
   } else {
     // Skip token for error recovery.
     getNextToken();
@@ -236,8 +238,12 @@ static void HandleDefinition() {
 }
 
 static void HandleExtern() {
-  if (ParseExtern()) {
-    fprintf(stderr, "Parsed an extern\n");
+  if (auto ProtoAST = ParseExtern()) {
+    if (auto *FnIR = ProtoAST->codegen()) {
+      fprintf(stderr, "Read extern: ");
+      FnIR->print(errs());
+      fprintf(stderr, "\n");
+    }
   } else {
     // Skip token for error recovery.
     getNextToken();
@@ -246,8 +252,15 @@ static void HandleExtern() {
 
 static void HandleTopLevelExpression() {
   // Evaluate a top-level expression into an anonymous function.
-  if (ParseTopLevelExpr()) {
-    fprintf(stderr, "Parsed a top-level expr\n");
+  if (auto FnAST = ParseTopLevelExpr()) {
+    if (auto *FnIR = FnAST->codegen()) {
+      fprintf(stderr, "Read top-level expression:");
+      FnIR->print(errs());
+      fprintf(stderr, "\n");
+
+      // Remove the anonymous expression.
+      FnIR->eraseFromParent();
+    }
   } else {
     // Skip token for error recovery.
     getNextToken();
@@ -293,8 +306,13 @@ int main() {
   fprintf(stderr, "ready> ");
   getNextToken();
 
+  // Make the module, which holds all the code.
+  InitializeModule();
+
   // Run the main "interpreter loop" now.
   MainLoop();
 
+  // Print out all of the generated code.
+  TheModule->print(errs(), nullptr);
   return 0;
 }

@@ -3,7 +3,12 @@ cmake_minimum_required (VERSION 3.8)
 project(Kaleidoscope CXX)
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(Kaleidoscope src/main.cpp)
+add_executable(Kaleidoscope src/main.cpp src/ast.cpp)
+
+# add_definitions("`llvm-config --cxxflags --ldflags --system-libs --libs core`")
+
+# $ llvm-config --cxxflags --ldflags --system-libs --libs core
+set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -I/usr/include -std=c++14   -fno-exceptions -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -L/usr/lib -lLLVM-14")
 
 
 ## Test
