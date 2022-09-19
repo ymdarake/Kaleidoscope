@@ -18,6 +18,10 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} --coverage") # 追加
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage") # 追加
+
+
 # Now simply link against gtest or gtest_main as needed. Eg
 add_executable(${PROJECT_NAME}-googletest src/foo.cpp test/test_foo.cpp)
 target_link_libraries(${PROJECT_NAME}-googletest gtest_main)
